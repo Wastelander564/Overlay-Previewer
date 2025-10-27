@@ -1,201 +1,157 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Multi-Overlay Previewer</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overlay Tool</title>
   <style>
-    html,body{height:100%;margin:0;font-family:Inter,system-ui;background:#0b0f1a;color:#e6eef6}
-    .wrap{max-width:1200px;margin:20px auto;padding:18px;background:#101828;border-radius:12px;box-shadow:0 0 30px rgba(0,0,0,0.4)}
-    h1{font-size:20px;margin-bottom:12px}
-    .controls{display:grid;grid-template-columns:320px 1fr;gap:16px}
-    .panel{background:#0f172a;padding:12px;border-radius:10px}
-    label{display:block;font-size:13px;margin:8px 0 4px;color:#94a3b8}
-    input,select,button{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#0b1220;color:inherit}
-    canvas{background:#0a1320;border-radius:8px;max-width:100%;height:auto;display:block;margin:0 auto;cursor:grab}
-    .section{border-top:1px solid rgba(255,255,255,0.05);margin-top:10px;padding-top:10px}
+    body {
+      margin: 0;
+      background-color: #111;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: white;
+      font-family: sans-serif;
+    }
+
+    .controls {
+      margin-bottom: 10px;
+    }
+
+    .overlay-wrapper {
+      position: relative;
+      display: inline-block;
+      overflow: hidden;
+    }
+
+    #backgroundImage {
+      display: block;
+      max-width: 80vw;
+      height: auto;
+    }
+
+    .overlay-item {
+      position: absolute;
+      cursor: move;
+      transform-origin: center;
+      user-select: none;
+    }
+
+    #loadingBarContainer {
+      position: absolute;
+      bottom: 5%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 60%;
+      height: 10px;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 5px;
+    }
+
+    #loadingBar {
+      width: 50%;
+      height: 100%;
+      background-color: limegreen;
+      border-radius: 5px;
+    }
+
+    input {
+      margin: 2px;
+      padding: 3px;
+      border-radius: 4px;
+      border: none;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Multi-Overlay Previewer</h1>
-    <div class="controls">
-      <div class="panel">
-        <label>Background</label>
-        <input id="bgFile" type="file" accept="image/*" />
-        <label>or Background URL</label>
-        <input id="bgUrl" type="text" placeholder="https://example.com/background.png" />
+  <div class="controls">
+    <input type="text" id="bgUrl" placeholder="Background URL or file path">
+    <button onclick="setBackground()">Set Background</button><br>
+    <input type="text" id="logoUrl" placeholder="Logo URL or file path">
+    <button onclick="setLogo()">Set Logo</button><br>
+    <input type="text" id="textUrl" placeholder="Text URL or file path">
+    <button onclick="setText()">Set Text</button>
+  </div>
 
-        <div class="section">
-          <h3>Logo Overlay</h3>
-          <input id="logoFile" type="file" accept="image/*" />
-          <label>or URL</label><input id="logoUrl" type="text" placeholder="https://example.com/logo.png" />
-          <label>Scale</label><input id="logoScale" type="range" min="0.1" max="3" step="0.01" value="1" />
-          <label>Opacity</label><input id="logoOpacity" type="range" min="0" max="1" step="0.01" value="1" />
-        </div>
+  <div class="overlay-wrapper" id="overlayWrapper">
+    <img id="backgroundImage" src="" alt="Background" crossorigin="anonymous">
 
-        <div class="section">
-          <h3>Loading Bar Overlay</h3>
-          <input id="barFile" type="file" accept="image/*" />
-          <label>or URL</label><input id="barUrl" type="text" placeholder="https://example.com/bar.png" />
-          <label>Scale</label><input id="barScale" type="range" min="0.1" max="3" step="0.01" value="1" />
-          <label>Opacity</label><input id="barOpacity" type="range" min="0" max="1" step="0.01" value="1" />
-        </div>
+    <img id="overlayLogo" class="overlay-item" style="top:10%; left:50%; width:20%;" crossorigin="anonymous">
+    <img id="overlayText" class="overlay-item" style="bottom:15%; left:50%; width:30%;" crossorigin="anonymous">
 
-        <div class="section">
-          <h3>Text Overlay</h3>
-          <input id="textFile" type="file" accept="image/*" />
-          <label>or URL</label><input id="textUrl" type="text" placeholder="https://example.com/text.png" />
-          <label>Scale</label><input id="textScale" type="range" min="0.1" max="3" step="0.01" value="1" />
-          <label>Opacity</label><input id="textOpacity" type="range" min="0" max="1" step="0.01" value="1" />
-        </div>
-
-        <div class="section">
-          <button id="download">Download Combined PNG</button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <canvas id="canvas"></canvas>
-      </div>
+    <div id="loadingBarContainer">
+      <div id="loadingBar"></div>
     </div>
   </div>
 
-<script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-let bgImg = null;
+  <script>
+    const overlayWrapper = document.getElementById('overlayWrapper');
+    let selectedItem = null;
+    let scale = 1;
 
-let overlays = {
-  logo: { img:null, x:100, y:100, scale:1, opacity:1 },
-  bar: { img:null, x:100, y:400, scale:1, opacity:1 },
-  text: { img:null, x:100, y:500, scale:1, opacity:1 }
-};
-
-let dragging = null;
-let dragOffset = {x:0,y:0};
-
-function loadImage(src, cb){
-  const i = new Image();
-  i.crossOrigin = "anonymous";
-  i.onload = () => cb(i);
-  i.onerror = () => alert("Failed to load image: " + src);
-  i.src = src;
-}
-
-function fileToImage(file, cb){
-  const r = new FileReader();
-  r.onload = ()=>loadImage(r.result, cb);
-  r.readAsDataURL(file);
-}
-
-function resizeCanvasToImage(img){
-  const maxW = 1024;
-  const scale = Math.min(maxW / img.width, 1);
-  canvas.width = img.width * scale;
-  canvas.height = img.height * scale;
-}
-
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(bgImg) ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
-  for(const key in overlays){
-    const o = overlays[key];
-    if(o.img){
-      ctx.save();
-      ctx.globalAlpha = o.opacity;
-      const w = o.img.width * o.scale;
-      const h = o.img.height * o.scale;
-      ctx.drawImage(o.img,o.x,o.y,w,h);
-      ctx.restore();
+    function loadImage(img, src) {
+      img.crossOrigin = "anonymous";
+      img.src = src;
+      img.onerror = () => alert("❌ Failed to load image: " + src);
+      img.onload = () => console.log("✅ Loaded:", src);
     }
-  }
-}
 
-// Load Background
-bgFile.onchange = e=>{
-  const f=e.target.files[0]; if(!f) return;
-  fileToImage(f,img=>{ bgImg=img; resizeCanvasToImage(img); draw(); });
-};
-bgUrl.onchange = e=>{
-  const url = e.target.value.trim();
-  if(!url) return;
-  loadImage(url, img => { bgImg=img; resizeCanvasToImage(img); draw(); });
-};
-
-// Load overlays (file + URL)
-['logo','bar','text'].forEach(name=>{
-  const fileInput = document.getElementById(name+'File');
-  const urlInput = document.getElementById(name+'Url');
-
-  fileInput.addEventListener('change', e=>{
-    const f=e.target.files[0]; if(!f) return;
-    fileToImage(f,img=>{ overlays[name].img=img; draw(); });
-  });
-  urlInput.addEventListener('change', e=>{
-    const url=e.target.value.trim(); if(!url) return;
-    loadImage(url, img=>{ overlays[name].img=img; draw(); });
-  });
-
-  document.getElementById(name+'Scale').addEventListener('input', e=>{
-    overlays[name].scale=parseFloat(e.target.value); draw();
-  });
-  document.getElementById(name+'Opacity').addEventListener('input', e=>{
-    overlays[name].opacity=parseFloat(e.target.value); draw();
-  });
-});
-
-// Dragging overlays
-canvas.addEventListener('mousedown', e=>{
-  const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left, y=e.clientY-rect.top;
-  for(const key of ['logo','bar','text']){
-    const o=overlays[key]; if(!o.img) continue;
-    const w=o.img.width*o.scale, h=o.img.height*o.scale;
-    if(x>=o.x && x<=o.x+w && y>=o.y && y<=o.y+h){
-      dragging=key; dragOffset={x:x-o.x,y:y-o.y};
-      canvas.style.cursor="grabbing";
-      return;
+    function setBackground() {
+      const url = document.getElementById('bgUrl').value;
+      loadImage(document.getElementById('backgroundImage'), url);
     }
-  }
-});
-window.addEventListener('mousemove', e=>{
-  if(!dragging) return;
-  const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left, y=e.clientY-rect.top;
-  const o=overlays[dragging];
-  o.x=x-dragOffset.x; o.y=y-dragOffset.y;
-  draw();
-});
-window.addEventListener('mouseup', ()=>{
-  dragging=null;
-  canvas.style.cursor="grab";
-});
 
-// Scrollwheel scaling on hover
-canvas.addEventListener('wheel', e=>{
-  const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left, y=e.clientY-rect.top;
-  for(const key of ['logo','bar','text']){
-    const o=overlays[key]; if(!o.img) continue;
-    const w=o.img.width*o.scale, h=o.img.height*o.scale;
-    if(x>=o.x && x<=o.x+w && y>=o.y && y<=o.y+h){
-      e.preventDefault();
-      o.scale = Math.max(0.1, o.scale + (e.deltaY < 0 ? 0.05 : -0.05));
-      document.getElementById(key+'Scale').value = o.scale.toFixed(2);
-      draw();
-      return;
+    function setLogo() {
+      const url = document.getElementById('logoUrl').value;
+      loadImage(document.getElementById('overlayLogo'), url);
     }
-  }
-}, {passive:false});
 
-// Export combined PNG
-download.onclick=()=>{
-  const link=document.createElement('a');
-  link.download='combined.png';
-  link.href=canvas.toDataURL('image/png');
-  link.click();
-};
-</script>
+    function setText() {
+      const url = document.getElementById('textUrl').value;
+      loadImage(document.getElementById('overlayText'), url);
+    }
+
+    // Drag to move
+    document.querySelectorAll('.overlay-item').forEach(el => {
+      el.addEventListener('mousedown', e => {
+        selectedItem = el;
+        const shiftX = e.clientX - el.getBoundingClientRect().left;
+        const shiftY = e.clientY - el.getBoundingClientRect().top;
+
+        function moveAt(pageX, pageY) {
+          const rect = overlayWrapper.getBoundingClientRect();
+          el.style.left = ((pageX - rect.left - shiftX) / rect.width) * 100 + '%';
+          el.style.top = ((pageY - rect.top - shiftY) / rect.height) * 100 + '%';
+          el.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+        }
+
+        function onMouseMove(e) {
+          moveAt(e.pageX, e.pageY);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        el.onmouseup = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          el.onmouseup = null;
+          selectedItem = null;
+        };
+      });
+      el.ondragstart = () => false;
+    });
+
+    // Scroll to scale selected
+    window.addEventListener('wheel', e => {
+      if (selectedItem) {
+        e.preventDefault();
+        scale += e.deltaY * -0.001;
+        scale = Math.min(Math.max(0.2, scale), 3);
+        selectedItem.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      }
+    });
+  </script>
 </body>
 </html>
