@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Overlay Previewer</title>
+  <style>
+    :root{--ui-bg:#0f1724;--panel:#0b1220;--accent:#7dd3fc;--muted:#94a3b8;color-scheme: dark}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#071023 0%, #071526 100%);color:#e6eef6}
+    .wrap{max-width:1100px;margin:20px auto;padding:18px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    h1{font-size:18px;margin:0 0 12px}
+    .controls{display:grid;grid-template-columns:320px 1fr;gap:16px}
+    .panel{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+    label{display:block;font-size:13px;margin:8px 0 6px;color:var(--muted)}
+    input[type=file], input[type=url], select, button{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);background:transparent;color:inherit}
+    .row{display:flex;gap:8px}
+    .canvas-wrap{display:flex;flex-direction:column;gap:8px;align-items:center}
+    canvas{background:#081327;border-radius:8px;max-width:100%;height:auto}
+    .sliders{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .small{font-size:12px;color:var(--muted)}
+    .actions{display:flex;gap:8px;margin-top:8px}
+    .hint{font-size:12px;color:var(--muted);margin-top:6px}
+    .footer{display:flex;gap:8px;align-items:center;margin-top:12px}
+    .badge{font-size:11px;background:rgba(125,211,252,0.08);padding:6px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Overlay Previewer</h1>
+    <div class="controls">
+      <div class="panel">
+        <label for="bgFile">Background (file)</label>
+        <input id="bgFile" type="file" accept="image/*">
+        <label for="bgUrl">or Background (URL)</label>
+        <input id="bgUrl" type="url" placeholder="https://...">
+        <label for="overlayFile">Overlay (file — PNG with transparency recommended)</label>
+        <input id="overlayFile" type="file" accept="image/*">
+        <label for="overlayUrl">or Overlay (URL)</label>
+        <input id="overlayUrl" type="url" placeholder="https://...">
+
+        <label for="blend">Blend mode</label>
+        <select id="blend">
+          <option value="source-over">Normal</option>
+          <option value="multiply">Multiply</option>
+          <option value="screen">Screen (lighter)</option>
+          <option value="overlay">Overlay</option>
+          <option value="darken">Darken</option>
+          <option value="lighten">Lighten</option>
+          <option value="lighter">Add / Lighter</option>
+        </select>
+
+        <label>Overlay opacity <span class="small" id="opVal">1.00</span></label>
+        <input id="opacity" type="range" min="0" max="1" step="0.01" value="1">
+
+        <label>Overlay scale <span class="small" id="scaleVal">100%</span></label>
+        <input id="scale" type="range" min="0.05" max="3" step="0.01" value="1">
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Snap / Fit</label>
+            <select id="fit">
+              <option value="none">None (manual)</option>
+              <option value="cover">Cover (fill)</option>
+              <option value="contain">Contain (fit)</option>
+              <option value="center">Center (no scale)</option>
+            </select>
+          </div>
+          <div style="width:92px">
+            <label>Reset</label>
+            <button id="reset">Reset</button>
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>Export</label>
+          <div class="row">
+            <button id="download">Download PNG</button>
+            <button id="copyData">Copy Data URL</button>
+          </div>
+        </div>
+
+        <p class="hint">Tip: drag the overlay on the canvas to reposition. Use the scale and opacity sliders to adjust. PNG overlays keep transparency.</p>
+      </div>
+
+      <div class="panel canvas-wrap">
+        <div style="display:flex;gap:8px;width:100%;align-items:center;justify-content:space-between">
+          <div class="badge">Interactive preview</div>
+          <div class="small">Click-drag to move overlay • Scroll to zoom overlay</div>
+        </div>
+
+        <canvas id="c" width="1024" height="576"></canvas>
+
+        <div class="actions">
+          <button id="centerBtn">Center Overlay</button>
+          <button id="fitBg">Fit to background</button>
+          <button id="toggleGrid">Toggle Grid</button>
+        </div>
+        <div class="footer">
+          <div class="small">Background size: <span id="bgSize">—</span></div>
+          <div class="small">Overlay size: <span id="ovSize">—</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let bgImg = null, ovImg = null;
+let ov = {x:0,y:0,scale:1,opacity:1,angle:0,w:0,h:0};
+let dragging=false, dragOffset={x:0,y:0};
+let showGrid=false;
+
+function fitCanvasTo(img){
+  if(!img) return;
+  const maxW = 1200; // cap size for display
+  const ratio = img.width / img.height;
+  let w = img.width; let h = img.height;
+  if(w > maxW){ w = maxW; h = Math.round(maxW / ratio); }
+  canvas.width = w; canvas.height = h;
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(bgImg){
+    // draw background to fill canvas
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    // draw bg stretched to canvas
+    ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.fillStyle = '#071327'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+
+  if(showGrid){
+    const step = 32; ctx.save(); ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
+    for(let x=0;x<canvas.width;x+=step){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+    for(let y=0;y<canvas.height;y+=step){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  if(ovImg){
+    ctx.save();
+    ctx.globalAlpha = ov.opacity;
+    ctx.globalCompositeOperation = document.getElementById('blend').value || 'source-over';
+    const ow = ovImg.width * ov.scale;
+    const oh = ovImg.height * ov.scale;
+    // draw at ov.x, ov.y
+    ctx.drawImage(ovImg, ov.x, ov.y, ow, oh);
+    ctx.restore();
+  }
+
+  document.getElementById('bgSize').textContent = bgImg ? `${bgImg.width}×${bgImg.height}` : '—';
+  document.getElementById('ovSize').textContent = ovImg ? `${Math.round(ovImg.width*ov.scale)}×${Math.round(ovImg.height*ov.scale)}` : '—';
+}
+
+// load image from file input
+function fileToImage(file, cb){
+  const reader = new FileReader();
+  reader.onload = ()=>{ const i = new Image(); i.onload = ()=>cb(i); i.src = reader.result; };
+  reader.readAsDataURL(file);
+}
+
+// handlers
+document.getElementById('bgFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return; fileToImage(f, img=>{ bgImg=img; fitCanvasTo(img); centerOverlay(); draw(); });
+});
+
+document.getElementById('overlayFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return; fileToImage(f, img=>{ ovImg=img; ov.scale=1; ov.w=img.width; ov.h=img.height; centerOverlay(); draw(); });
+});
+
+// URL load helpers
+async function loadImageFromUrl(url){
+  return new Promise((res,rej)=>{
+    const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = ()=>res(i); i.onerror = rej; i.src = url;
+  });
+}
+
+document.getElementById('bgUrl').addEventListener('change', async e=>{
+  const url = e.target.value.trim(); if(!url) return; try{ const img = await loadImageFromUrl(url); bgImg=img; fitCanvasTo(img); centerOverlay(); draw(); }catch(err){alert('Could not load background URL. CORS may block some hosts.');}
+});
+
+document.getElementById('overlayUrl').addEventListener('change', async e=>{
+  const url = e.target.value.trim(); if(!url) return; try{ const img = await loadImageFromUrl(url); ovImg=img; ov.scale=1; ov.w=img.width; ov.h=img.height; centerOverlay(); draw(); }catch(err){alert('Could not load overlay URL. CORS may block some hosts.');}
+});
+
+// sliders
+const op = document.getElementById('opacity');
+op.addEventListener('input', ()=>{ ov.opacity = parseFloat(op.value); document.getElementById('opVal').textContent = ov.opacity.toFixed(2); draw(); });
+
+document.getElementById('scale').addEventListener('input', e=>{ ov.scale = parseFloat(e.target.value); document.getElementById('scaleVal').textContent = Math.round(ov.scale*100) + '%'; draw(); });
+
+document.getElementById('blend').addEventListener('change', draw);
+
+document.getElementById('reset').addEventListener('click', ()=>{ ov.scale=1; ov.opacity=1; ov.x=0; ov.y=0; document.getElementById('opacity').value=1; document.getElementById('scale').value=1; document.getElementById('opVal').textContent='1.00'; document.getElementById('scaleVal').textContent='100%'; draw(); });
+
+document.getElementById('fit').addEventListener('change', ()=>{
+  const v = document.getElementById('fit').value; if(!ovImg || !bgImg) return;
+  if(v==='cover'){
+    // scale overlay to cover canvas
+    const scaleW = canvas.width / ovImg.width;
+    const scaleH = canvas.height / ovImg.height;
+    ov.scale = Math.max(scaleW, scaleH);
+    ov.x = (canvas.width - ovImg.width*ov.scale)/2; ov.y = (canvas.height - ovImg.height*ov.scale)/2;
+  } else if(v==='contain'){
+    const scaleW = canvas.width / ovImg.width;
+    const scaleH = canvas.height / ovImg.height;
+    ov.scale = Math.min(scaleW, scaleH);
+    ov.x = (canvas.width - ovImg.width*ov.scale)/2; ov.y = (canvas.height - ovImg.height*ov.scale)/2;
+  } else if(v==='center'){
+    ov.scale = 1; ov.x = (canvas.width - ovImg.width)/2; ov.y = (canvas.height - ovImg.height)/2;
+  }
+  document.getElementById('scale').value = ov.scale;
+  document.getElementById('scaleVal').textContent = Math.round(ov.scale*100) + '%';
+  draw();
+});
+
+// center overlay
+function centerOverlay(){
+  if(!ovImg) return; ov.scale = 1;
+  ov.x = Math.round((canvas.width - ovImg.width)/2);
+  ov.y = Math.round((canvas.height - ovImg.height)/2);
+  document.getElementById('scale').value = ov.scale; document.getElementById('scaleVal').textContent = '100%';
+}
+
+document.getElementById('centerBtn').addEventListener('click', ()=>{ centerOverlay(); draw(); });
+document.getElementById('fitBg').addEventListener('click', ()=>{ if(bgImg && ovImg){ document.getElementById('fit').value='contain'; document.getElementById('fit').dispatchEvent(new Event('change')); } });
+document.getElementById('toggleGrid').addEventListener('click', ()=>{ showGrid = !showGrid; draw(); });
+
+// download
+document.getElementById('download').addEventListener('click', ()=>{
+  const link = document.createElement('a'); link.download = 'combined.png'; link.href = canvas.toDataURL('image/png'); link.click();
+});
+
+document.getElementById('copyData').addEventListener('click', async ()=>{
+  try{ await navigator.clipboard.writeText(canvas.toDataURL('image/png')); alert('Data URL copied to clipboard'); } catch(e){ alert('Failed to copy — maybe not allowed by your browser'); }
+});
+
+// canvas interaction (drag to move, wheel to scale)
+canvas.addEventListener('mousedown', e=>{
+  if(!ovImg) return; const rect = canvas.getBoundingClientRect(); const x = e.clientX - rect.left; const y = e.clientY - rect.top;
+  const ow = ovImg.width * ov.scale; const oh = ovImg.height * ov.scale;
+  if(x >= ov.x && x <= ov.x + ow && y >= ov.y && y <= ov.y + oh){ dragging=true; dragOffset.x = x - ov.x; dragOffset.y = y - ov.y; }
+});
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return; const rect = canvas.getBoundingClientRect(); const x = e.clientX - rect.left; const y = e.clientY - rect.top; ov.x = x - dragOffset.x; ov.y = y - dragOffset.y; draw(); });
+window.addEventListener('mouseup', ()=>{ dragging=false; });
+
+canvas.addEventListener('wheel', e=>{
+  if(!ovImg) return; e.preventDefault(); const delta = -e.deltaY; const factor = delta > 0 ? 1.05 : 0.95; const prevScale = ov.scale; ov.scale = Math.max(0.05, Math.min(3, ov.scale * factor)); // zoom around cursor
+  const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+  // adjust x/y so the point under cursor remains roughly fixed
+  ov.x = mx - (mx - ov.x) * (ov.scale / prevScale);
+  ov.y = my - (my - ov.y) * (ov.scale / prevScale);
+  document.getElementById('scale').value = ov.scale; document.getElementById('scaleVal').textContent = Math.round(ov.scale*100) + '%';
+  draw();
+}, {passive:false});
+
+// init
+(function(){ draw(); })();
+</script>
+</body>
+</html>

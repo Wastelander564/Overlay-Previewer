@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Multi-Overlay Previewer</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:Inter,system-ui;background:#0b0f1a;color:#e6eef6}
+    .wrap{max-width:1200px;margin:20px auto;padding:18px;background:#101828;border-radius:12px;box-shadow:0 0 30px rgba(0,0,0,0.4)}
+    h1{font-size:20px;margin-bottom:12px}
+    .controls{display:grid;grid-template-columns:320px 1fr;gap:16px}
+    .panel{background:#0f172a;padding:12px;border-radius:10px}
+    label{display:block;font-size:13px;margin:8px 0 4px;color:#94a3b8}
+    input,select,button{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#0b1220;color:inherit}
+    canvas{background:#0a1320;border-radius:8px;max-width:100%;height:auto;display:block;margin:0 auto}
+    .section{border-top:1px solid rgba(255,255,255,0.05);margin-top:10px;padding-top:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Multi-Overlay Previewer</h1>
+    <div class="controls">
+      <div class="panel">
+        <label>Background</label>
+        <input id="bgFile" type="file" accept="image/*" />
+
+        <div class="section">
+          <h3>Logo Overlay</h3>
+          <input id="logoFile" type="file" accept="image/*" />
+          <label>Scale</label><input id="logoScale" type="range" min="0.1" max="3" step="0.01" value="1" />
+          <label>Opacity</label><input id="logoOpacity" type="range" min="0" max="1" step="0.01" value="1" />
+        </div>
+
+        <div class="section">
+          <h3>Loading Bar Overlay</h3>
+          <input id="barFile" type="file" accept="image/*" />
+          <label>Scale</label><input id="barScale" type="range" min="0.1" max="3" step="0.01" value="1" />
+          <label>Opacity</label><input id="barOpacity" type="range" min="0" max="1" step="0.01" value="1" />
+        </div>
+
+        <div class="section">
+          <h3>Text Overlay</h3>
+          <input id="textFile" type="file" accept="image/*" />
+          <label>Scale</label><input id="textScale" type="range" min="0.1" max="3" step="0.01" value="1" />
+          <label>Opacity</label><input id="textOpacity" type="range" min="0" max="1" step="0.01" value="1" />
+        </div>
+
+        <div class="section">
+          <button id="download">Download Combined PNG</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let bgImg = null;
+
+let overlays = {
+  logo: { img:null, x:100, y:100, scale:1, opacity:1 },
+  bar: { img:null, x:100, y:400, scale:1, opacity:1 },
+  text: { img:null, x:100, y:500, scale:1, opacity:1 }
+};
+
+let dragging = null;
+let dragOffset = {x:0,y:0};
+
+function fileToImage(file,cb){
+  const r=new FileReader();
+  r.onload=()=>{const i=new Image();i.onload=()=>cb(i);i.src=r.result;};
+  r.readAsDataURL(file);
+}
+
+function resizeCanvasToImage(img){
+  const maxW = 1024; // limit size for preview
+  const scale = Math.min(maxW / img.width, 1);
+  canvas.width = img.width * scale;
+  canvas.height = img.height * scale;
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(bgImg) ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+  for(const key in overlays){
+    const o = overlays[key];
+    if(o.img){
+      ctx.save();
+      ctx.globalAlpha = o.opacity;
+      const w = o.img.width * o.scale;
+      const h = o.img.height * o.scale;
+      ctx.drawImage(o.img,o.x,o.y,w,h);
+      ctx.restore();
+    }
+  }
+}
+
+// Background
+bgFile.onchange = e=>{
+  const f=e.target.files[0]; if(!f) return;
+  fileToImage(f,img=>{
+    bgImg=img;
+    resizeCanvasToImage(img);
+    draw();
+  });
+};
+
+// Overlay loaders
+['logo','bar','text'].forEach(name=>{
+  document.getElementById(name+'File').addEventListener('change', e=>{
+    const f=e.target.files[0]; if(!f) return;
+    fileToImage(f,img=>{ overlays[name].img=img; draw(); });
+  });
+  document.getElementById(name+'Scale').addEventListener('input', e=>{
+    overlays[name].scale=parseFloat(e.target.value); draw();
+  });
+  document.getElementById(name+'Opacity').addEventListener('input', e=>{
+    overlays[name].opacity=parseFloat(e.target.value); draw();
+  });
+});
+
+// Drag overlays
+canvas.addEventListener('mousedown', e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  for(const key of ['logo','bar','text']){
+    const o=overlays[key]; if(!o.img) continue;
+    const w=o.img.width*o.scale, h=o.img.height*o.scale;
+    if(x>=o.x && x<=o.x+w && y>=o.y && y<=o.y+h){
+      dragging=key; dragOffset={x:x-o.x,y:y-o.y}; return;
+    }
+  }
+});
+
+window.addEventListener('mousemove', e=>{
+  if(!dragging) return;
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  const o=overlays[dragging];
+  o.x=x-dragOffset.x; o.y=y-dragOffset.y;
+  draw();
+});
+
+window.addEventListener('mouseup', ()=>dragging=null);
+
+// Export
+download.onclick=()=>{
+  const link=document.createElement('a');
+  link.download='combined.png';
+  link.href=canvas.toDataURL('image/png');
+  link.click();
+};
+</script>
+</body>
+</html>
