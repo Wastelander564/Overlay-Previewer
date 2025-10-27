@@ -12,7 +12,7 @@
     .panel{background:#0f172a;padding:12px;border-radius:10px}
     label{display:block;font-size:13px;margin:8px 0 4px;color:#94a3b8}
     input,select,button{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:#0b1220;color:inherit}
-    canvas{background:#0a1320;border-radius:8px;max-width:100%;height:auto;display:block;margin:0 auto}
+    canvas{background:#0a1320;border-radius:8px;max-width:100%;height:auto;display:block;margin:0 auto;cursor:grab}
     .section{border-top:1px solid rgba(255,255,255,0.05);margin-top:10px;padding-top:10px}
   </style>
 </head>
@@ -23,10 +23,13 @@
       <div class="panel">
         <label>Background</label>
         <input id="bgFile" type="file" accept="image/*" />
+        <label>or Background URL</label>
+        <input id="bgUrl" type="text" placeholder="https://example.com/background.png" />
 
         <div class="section">
           <h3>Logo Overlay</h3>
           <input id="logoFile" type="file" accept="image/*" />
+          <label>or URL</label><input id="logoUrl" type="text" placeholder="https://example.com/logo.png" />
           <label>Scale</label><input id="logoScale" type="range" min="0.1" max="3" step="0.01" value="1" />
           <label>Opacity</label><input id="logoOpacity" type="range" min="0" max="1" step="0.01" value="1" />
         </div>
@@ -34,6 +37,7 @@
         <div class="section">
           <h3>Loading Bar Overlay</h3>
           <input id="barFile" type="file" accept="image/*" />
+          <label>or URL</label><input id="barUrl" type="text" placeholder="https://example.com/bar.png" />
           <label>Scale</label><input id="barScale" type="range" min="0.1" max="3" step="0.01" value="1" />
           <label>Opacity</label><input id="barOpacity" type="range" min="0" max="1" step="0.01" value="1" />
         </div>
@@ -41,6 +45,7 @@
         <div class="section">
           <h3>Text Overlay</h3>
           <input id="textFile" type="file" accept="image/*" />
+          <label>or URL</label><input id="textUrl" type="text" placeholder="https://example.com/text.png" />
           <label>Scale</label><input id="textScale" type="range" min="0.1" max="3" step="0.01" value="1" />
           <label>Opacity</label><input id="textOpacity" type="range" min="0" max="1" step="0.01" value="1" />
         </div>
@@ -70,14 +75,22 @@ let overlays = {
 let dragging = null;
 let dragOffset = {x:0,y:0};
 
-function fileToImage(file,cb){
-  const r=new FileReader();
-  r.onload=()=>{const i=new Image();i.onload=()=>cb(i);i.src=r.result;};
+function loadImage(src, cb){
+  const i = new Image();
+  i.crossOrigin = "anonymous";
+  i.onload = () => cb(i);
+  i.onerror = () => alert("Failed to load image: " + src);
+  i.src = src;
+}
+
+function fileToImage(file, cb){
+  const r = new FileReader();
+  r.onload = ()=>loadImage(r.result, cb);
   r.readAsDataURL(file);
 }
 
 function resizeCanvasToImage(img){
-  const maxW = 1024; // limit size for preview
+  const maxW = 1024;
   const scale = Math.min(maxW / img.width, 1);
   canvas.width = img.width * scale;
   canvas.height = img.height * scale;
@@ -99,22 +112,31 @@ function draw(){
   }
 }
 
-// Background
+// Load Background
 bgFile.onchange = e=>{
   const f=e.target.files[0]; if(!f) return;
-  fileToImage(f,img=>{
-    bgImg=img;
-    resizeCanvasToImage(img);
-    draw();
-  });
+  fileToImage(f,img=>{ bgImg=img; resizeCanvasToImage(img); draw(); });
+};
+bgUrl.onchange = e=>{
+  const url = e.target.value.trim();
+  if(!url) return;
+  loadImage(url, img => { bgImg=img; resizeCanvasToImage(img); draw(); });
 };
 
-// Overlay loaders
+// Load overlays (file + URL)
 ['logo','bar','text'].forEach(name=>{
-  document.getElementById(name+'File').addEventListener('change', e=>{
+  const fileInput = document.getElementById(name+'File');
+  const urlInput = document.getElementById(name+'Url');
+
+  fileInput.addEventListener('change', e=>{
     const f=e.target.files[0]; if(!f) return;
     fileToImage(f,img=>{ overlays[name].img=img; draw(); });
   });
+  urlInput.addEventListener('change', e=>{
+    const url=e.target.value.trim(); if(!url) return;
+    loadImage(url, img=>{ overlays[name].img=img; draw(); });
+  });
+
   document.getElementById(name+'Scale').addEventListener('input', e=>{
     overlays[name].scale=parseFloat(e.target.value); draw();
   });
@@ -123,7 +145,7 @@ bgFile.onchange = e=>{
   });
 });
 
-// Drag overlays
+// Dragging overlays
 canvas.addEventListener('mousedown', e=>{
   const rect=canvas.getBoundingClientRect();
   const x=e.clientX-rect.left, y=e.clientY-rect.top;
@@ -131,11 +153,12 @@ canvas.addEventListener('mousedown', e=>{
     const o=overlays[key]; if(!o.img) continue;
     const w=o.img.width*o.scale, h=o.img.height*o.scale;
     if(x>=o.x && x<=o.x+w && y>=o.y && y<=o.y+h){
-      dragging=key; dragOffset={x:x-o.x,y:y-o.y}; return;
+      dragging=key; dragOffset={x:x-o.x,y:y-o.y};
+      canvas.style.cursor="grabbing";
+      return;
     }
   }
 });
-
 window.addEventListener('mousemove', e=>{
   if(!dragging) return;
   const rect=canvas.getBoundingClientRect();
@@ -144,10 +167,29 @@ window.addEventListener('mousemove', e=>{
   o.x=x-dragOffset.x; o.y=y-dragOffset.y;
   draw();
 });
+window.addEventListener('mouseup', ()=>{
+  dragging=null;
+  canvas.style.cursor="grab";
+});
 
-window.addEventListener('mouseup', ()=>dragging=null);
+// Scrollwheel scaling on hover
+canvas.addEventListener('wheel', e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left, y=e.clientY-rect.top;
+  for(const key of ['logo','bar','text']){
+    const o=overlays[key]; if(!o.img) continue;
+    const w=o.img.width*o.scale, h=o.img.height*o.scale;
+    if(x>=o.x && x<=o.x+w && y>=o.y && y<=o.y+h){
+      e.preventDefault();
+      o.scale = Math.max(0.1, o.scale + (e.deltaY < 0 ? 0.05 : -0.05));
+      document.getElementById(key+'Scale').value = o.scale.toFixed(2);
+      draw();
+      return;
+    }
+  }
+}, {passive:false});
 
-// Export
+// Export combined PNG
 download.onclick=()=>{
   const link=document.createElement('a');
   link.download='combined.png';
