@@ -3,41 +3,74 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Overlay Tool</title>
+  <title>Overlay Composer</title>
   <style>
     body {
       margin: 0;
       background-color: #111;
+      color: white;
+      font-family: sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       height: 100vh;
-      color: white;
-      font-family: sans-serif;
+      padding-top: 10px;
     }
 
     .controls {
       margin-bottom: 10px;
+      text-align: center;
+    }
+
+    input, select, button {
+      margin: 4px;
+      padding: 6px;
+      border-radius: 4px;
+      border: none;
+    }
+
+    button {
+      cursor: pointer;
+      background: #333;
+      color: white;
     }
 
     .overlay-wrapper {
       position: relative;
       display: inline-block;
       overflow: hidden;
+      border-radius: 10px;
     }
 
     #backgroundImage {
       display: block;
       max-width: 80vw;
       height: auto;
+      border-radius: 10px;
     }
 
     .overlay-item {
       position: absolute;
       cursor: move;
-      transform-origin: center;
       user-select: none;
+      transform-origin: center;
+      white-space: nowrap;
+    }
+
+    #overlayLogo {
+      top: 10%;
+      left: 50%;
+      width: 25%;
+      transform: translate(-50%, -50%);
+    }
+
+    #overlayText {
+      bottom: 15%;
+      left: 50%;
+      font-size: 2em;
+      color: white;
+      transform: translate(-50%, -50%);
     }
 
     #loadingBarContainer {
@@ -57,31 +90,36 @@
       background-color: limegreen;
       border-radius: 5px;
     }
-
-    input {
-      margin: 2px;
-      padding: 3px;
-      border-radius: 4px;
-      border: none;
-    }
   </style>
 </head>
 <body>
   <div class="controls">
-    <input type="text" id="bgUrl" placeholder="Background URL or file path">
-    <button onclick="setBackground()">Set Background</button><br>
-    <input type="text" id="logoUrl" placeholder="Logo URL or file path">
-    <button onclick="setLogo()">Set Logo</button><br>
-    <input type="text" id="textUrl" placeholder="Text URL or file path">
-    <button onclick="setText()">Set Text</button>
+    <div>
+      <input type="text" id="bgUrl" placeholder="Background URL or path">
+      <button onclick="setBackground()">Set Background</button>
+    </div>
+    <div>
+      <input type="text" id="logoUrl" placeholder="Logo URL or path">
+      <button onclick="setLogo()">Set Logo</button>
+    </div>
+    <div>
+      <input type="text" id="textInput" placeholder="Overlay text">
+      <select id="fontSelect">
+        <option value="Arial, sans-serif">Arial</option>
+        <option value="'Times New Roman', serif">Times New Roman</option>
+        <option value="'Courier New', monospace">Courier New</option>
+        <option value="'Poppins', sans-serif">Poppins</option>
+        <option value="'Roboto', sans-serif">Roboto</option>
+        <option value="'Pacifico', cursive">Pacifico</option>
+      </select>
+      <button onclick="setText()">Set Text</button>
+    </div>
   </div>
 
   <div class="overlay-wrapper" id="overlayWrapper">
     <img id="backgroundImage" src="" alt="Background" crossorigin="anonymous">
-
-    <img id="overlayLogo" class="overlay-item" style="top:10%; left:50%; width:20%;" crossorigin="anonymous">
-    <img id="overlayText" class="overlay-item" style="bottom:15%; left:50%; width:30%;" crossorigin="anonymous">
-
+    <img id="overlayLogo" class="overlay-item" alt="Logo" crossorigin="anonymous">
+    <div id="overlayText" class="overlay-item"></div>
     <div id="loadingBarContainer">
       <div id="loadingBar"></div>
     </div>
@@ -110,19 +148,22 @@
     }
 
     function setText() {
-      const url = document.getElementById('textUrl').value;
-      loadImage(document.getElementById('overlayText'), url);
+      const text = document.getElementById('textInput').value;
+      const font = document.getElementById('fontSelect').value;
+      const textElement = document.getElementById('overlayText');
+      textElement.textContent = text;
+      textElement.style.fontFamily = font;
     }
 
-    // Drag to move
+    // Enable dragging for overlay items
     document.querySelectorAll('.overlay-item').forEach(el => {
       el.addEventListener('mousedown', e => {
         selectedItem = el;
+        const rect = overlayWrapper.getBoundingClientRect();
         const shiftX = e.clientX - el.getBoundingClientRect().left;
         const shiftY = e.clientY - el.getBoundingClientRect().top;
 
         function moveAt(pageX, pageY) {
-          const rect = overlayWrapper.getBoundingClientRect();
           el.style.left = ((pageX - rect.left - shiftX) / rect.width) * 100 + '%';
           el.style.top = ((pageY - rect.top - shiftY) / rect.height) * 100 + '%';
           el.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
@@ -143,7 +184,7 @@
       el.ondragstart = () => false;
     });
 
-    // Scroll to scale selected
+    // Scale selected element with mouse wheel
     window.addEventListener('wheel', e => {
       if (selectedItem) {
         e.preventDefault();
